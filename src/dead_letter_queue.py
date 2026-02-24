@@ -1,14 +1,12 @@
 import json
-import time
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from enum import Enum
 
-from confluent_kafka import Producer, KafkaException
+from confluent_kafka import Producer
 
 from logger import get_logger
-from metrics import metrics
 
 
 class DLQReason(Enum):
@@ -99,8 +97,6 @@ class DeadLetterQueue:
                 callback=self._delivery_callback,
             )
             self._producer.poll(0)
-
-            metrics.dlq_messages.labels(reason=reason.value).inc()
 
             self.logger.warning(
                 f"Message sent to DLQ: topic={original_topic}, "
