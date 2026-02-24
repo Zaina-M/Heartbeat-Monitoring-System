@@ -11,13 +11,13 @@
   "panels": [
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "mappings": [],
           "thresholds": {
@@ -47,7 +47,14 @@
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "sum(heartbeat_messages_produced_total)",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Total Messages\" FROM heartbeat_records;",
           "refId": "A"
         }
       ],
@@ -56,13 +63,13 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "mappings": [],
           "thresholds": {
@@ -92,7 +99,14 @@
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "sum(heartbeat_messages_consumed_total{status=\"received\"})",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Total Consumed\" FROM heartbeat_records WHERE created_at >= NOW() - INTERVAL '24 hours';",
           "refId": "A"
         }
       ],
@@ -101,8 +115,8 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
@@ -139,7 +153,14 @@
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "sum(heartbeat_anomalies_detected_total)",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Total Anomalies\" FROM heartbeat_records WHERE is_anomaly = TRUE;",
           "refId": "A"
         }
       ],
@@ -148,8 +169,8 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
@@ -185,7 +206,14 @@
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "sum(heartbeat_dlq_messages_total)",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"DLQ Messages\" FROM dlq_messages;",
           "refId": "A"
         }
       ],
@@ -194,8 +222,8 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
@@ -205,7 +233,7 @@
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "Messages / min",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
@@ -239,7 +267,7 @@
               {"color": "green", "value": null}
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -260,14 +288,15 @@
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "rate(heartbeat_messages_produced_total{status=\"success\"}[1m])",
-          "legendFormat": "Producer Throughput",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  date_trunc('minute', timestamp) AS time,\n  COUNT(*) AS \"Throughput\"\nFROM heartbeat_records\nWHERE $__timeFilter(timestamp)\nGROUP BY 1\nORDER BY 1;",
           "refId": "A"
-        },
-        {
-          "expr": "rate(heartbeat_messages_consumed_total{status=\"received\"}[1m])",
-          "legendFormat": "Consumer Throughput",
-          "refId": "B"
         }
       ],
       "title": "Message Throughput",
@@ -275,8 +304,8 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
@@ -341,8 +370,14 @@
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "sum by (anomaly_type) (heartbeat_anomalies_detected_total)",
-          "legendFormat": "{{anomaly_type}}",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  date_trunc('minute', timestamp) AS time,\n  anomaly_type AS metric,\n  COUNT(*) AS value\nFROM heartbeat_records\nWHERE is_anomaly = TRUE\n  AND $__timeFilter(timestamp)\nGROUP BY 1, 2\nORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -351,8 +386,8 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
@@ -362,7 +397,7 @@
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "BPM",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
@@ -386,17 +421,21 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line+area"
             }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": null}
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 40},
+              {"color": "green", "value": 60},
+              {"color": "yellow", "value": 150},
+              {"color": "red", "value": 180}
             ]
           },
-          "unit": "s"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -404,7 +443,7 @@
       "id": 7,
       "options": {
         "legend": {
-          "calcs": ["mean", "p95"],
+          "calcs": ["mean", "min", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -417,34 +456,31 @@
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(heartbeat_db_write_duration_seconds_bucket[5m]))",
-          "legendFormat": "p95 DB Write",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  date_trunc('minute', timestamp) AS time,\n  AVG(heart_rate) AS \"Avg Heart Rate\",\n  MIN(heart_rate) AS \"Min Heart Rate\",\n  MAX(heart_rate) AS \"Max Heart Rate\"\nFROM heartbeat_records\nWHERE $__timeFilter(timestamp)\nGROUP BY 1\nORDER BY 1;",
           "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.50, rate(heartbeat_db_write_duration_seconds_bucket[5m]))",
-          "legendFormat": "p50 DB Write",
-          "refId": "B"
         }
       ],
-      "title": "Database Write Latency",
+      "title": "Heart Rate Overview",
       "type": "timeseries"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "P1234567890"
       },
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
-          "mappings": [
-            {"options": {"0": {"color": "green", "index": 0, "text": "CLOSED"}}, "type": "value"},
-            {"options": {"1": {"color": "red", "index": 1, "text": "OPEN"}}, "type": "value"},
-            {"options": {"2": {"color": "yellow", "index": 2, "text": "HALF-OPEN"}}, "type": "value"}
-          ],
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -458,27 +494,40 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
       "id": 8,
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
+        "displayLabels": ["percent", "name"],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": ["value", "percent"]
+        },
+        "pieType": "donut",
         "reduceOptions": {
           "calcs": ["lastNotNull"],
           "fields": "",
-          "values": false
+          "values": true
         },
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
       },
       "pluginVersion": "10.1.0",
       "targets": [
         {
-          "expr": "heartbeat_circuit_breaker_state{service=\"postgres\"}",
-          "legendFormat": "PostgreSQL",
+          "datasource": {
+            "type": "postgres",
+            "uid": "P1234567890"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(anomaly_type, 'normal') AS anomaly_type,\n  COUNT(*) AS count\nFROM heartbeat_records\nWHERE $__timeFilter(timestamp)\nGROUP BY 1\nORDER BY 2 DESC;",
           "refId": "A"
         }
       ],
-      "title": "Circuit Breaker Status",
-      "type": "stat"
+      "title": "Readings Distribution",
+      "type": "piechart"
     }
   ],
   "refresh": "5s",
@@ -489,12 +538,12 @@
     "list": []
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
   "title": "Heartbeat Monitoring",
   "uid": "heartbeat-monitoring",
-  "version": 1
+  "version": 2
 }
