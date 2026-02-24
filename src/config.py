@@ -92,10 +92,6 @@ class LogConfig:
     directory: Path = Path(_get_env("LOG_DIR", "logs"))
 
 
-@dataclass(frozen=True)
-class MetricsConfig:
-    enabled: bool = _get_env_bool("METRICS_ENABLED", True)
-    port: int = _get_env_int("METRICS_PORT", 8000)
 
 
 kafka_config = KafkaConfig()
@@ -104,4 +100,4 @@ generator_config = GeneratorConfig()
 heartrate_config = HeartRateConfig()
 batch_config = BatchConfig()
 log_config = LogConfig()
-metrics_config = MetricsConfig()
+
