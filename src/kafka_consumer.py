@@ -1,37 +1,29 @@
 """
 Kafka Consumer for Heartbeat Events
-
 Consumes heartbeat data from Kafka, detects anomalies, and stores in PostgreSQL.
-
-Features:
-- Pydantic validation for type safety and data integrity
-- Exactly-once semantics via idempotent upserts (ON CONFLICT DO NOTHING)
-- Backpressure handling to prevent memory overflow
-- Dead Letter Queue for unprocessable messages
 """
-
 import json
+import os
 import signal
 import time
-from datetime import datetime
 from typing import List, Optional
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 
-import psycopg2
+
+from psycopg2 import extensions
 from psycopg2.extras import execute_values
 from psycopg2.pool import ThreadedConnectionPool
-from confluent_kafka import Consumer, KafkaError, KafkaException
+from confluent_kafka import Consumer, KafkaError
 from pydantic import ValidationError
 
-from config import kafka_config, postgres_config, batch_config, heartrate_config, metrics_config
+from config import kafka_config, postgres_config, batch_config, heartrate_config
 from anomaly_detector import AnomalyDetector
 from logger import get_logger
-from metrics import metrics
 from dead_letter_queue import DeadLetterQueue, DLQReason
 from schema_registry import get_schema_registry
-from models import HeartbeatEvent, ProcessedHeartbeat, validate_heartbeat_event
-from backpressure import BackpressureHandler, BackpressureConfig, BackpressureState
+from models import  validate_heartbeat_event
+from backpressure import BackpressureHandler, BackpressureConfig
 
 
 @dataclass
@@ -68,8 +60,11 @@ class DatabaseWriter:
 
     @contextmanager
     def _get_connection(self):
+        """Get connection with explicit transaction isolation."""
         conn = self._pool.getconn()
         try:
+            # Set isolation level for consistent reads within transaction
+            conn.set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
             yield conn
             conn.commit()
         except Exception:
@@ -79,12 +74,9 @@ class DatabaseWriter:
             self._pool.putconn(conn)
 
     def write_batch(self, records: List[dict]) -> tuple[int, int]:
-        """
-        Write batch using upsert (ON CONFLICT DO NOTHING).
         
-        Returns:
-            Tuple of (inserted_count, skipped_duplicates_count)
-        """
+       # Write batch using upsert (ON CONFLICT DO NOTHING).
+       
         if not records:
             return 0, 0
 
@@ -104,7 +96,7 @@ class DatabaseWriter:
                     for r in records
                 ]
                 
-                # Use ON CONFLICT DO NOTHING for idempotent writes
+               
                 # Duplicates (same customer_id + timestamp) are silently skipped
                 execute_values(
                     cur,
@@ -122,8 +114,6 @@ class DatabaseWriter:
                 skipped = len(records) - inserted
 
         duration = time.time() - start_time
-        metrics.db_write_duration.observe(duration)
-        metrics.db_writes.labels(status="success").inc()
         
         if skipped > 0:
             self.logger.debug(f"Skipped {skipped} duplicate records")
@@ -131,12 +121,9 @@ class DatabaseWriter:
         return inserted, skipped
 
     def write_batch_with_fallback(self, records: List[dict]) -> tuple[int, int, int]:
-        """
-        Try batch insert, fall back to individual inserts on failure.
         
-        Returns:
-            Tuple of (inserted_count, skipped_duplicates_count, failed_count)
-        """
+       # Try batch insert, fall back to individual inserts on failure.
+    
         if not records:
             return 0, 0, 0
 
@@ -189,17 +176,7 @@ class DatabaseWriter:
 
 
 class HeartbeatConsumer:
-    """
-    Consumes heartbeat events from Kafka and stores them in PostgreSQL.
-    
-    Features:
-    - Pydantic validation for type safety
-    - Exactly-once semantics via idempotent upserts
-    - Backpressure handling to prevent memory overflow
-    - Batch processing for efficiency
-    - Anomaly detection
-    - Dead Letter Queue for unprocessable messages
-    """
+  
 
     def __init__(
         self,
@@ -245,12 +222,6 @@ class HeartbeatConsumer:
         self._pending_messages: List = []
         self._last_flush = time.time()
 
-        if metrics_config.enabled:
-            try:
-                metrics.start_server(metrics_config.port + 1)
-            except OSError:
-                pass
-
         self.logger.info(
             f"Consumer initialized: topic={topic}, group={group_id}, "
             f"batch_size={batch_size}, brokers={bootstrap_servers}, "
@@ -286,23 +257,21 @@ class HeartbeatConsumer:
             return None
 
         try:
-            result = self._detector.detect(data["heart_rate"])
+            # Pass customer_id for advanced pattern-based anomaly detection
+            result = self._detector.detect(data["heart_rate"], customer_id=data["customer_id"])
 
             if result.is_anomaly:
                 self.stats.anomalies += 1
-                metrics.anomalies_detected.labels(
-                    anomaly_type=result.anomaly_type or "unknown",
-                    severity=str(result.severity),
-                ).inc()
 
-                self.logger.warning(
+                log_msg = (
                     f"Anomaly: {data['customer_id']} | HR={data['heart_rate']} | "
                     f"Type={result.anomaly_type} | Severity={result.severity}"
                 )
+                if result.details:
+                    log_msg += f" | {result.details}"
+                self.logger.warning(log_msg)
 
             duration = time.time() - start_time
-            metrics.message_processing_duration.observe(duration)
-            metrics.heart_rate_distribution.observe(data["heart_rate"])
 
             return {
                 "customer_id": data["customer_id"],
@@ -367,8 +336,6 @@ class HeartbeatConsumer:
                 f"Throughput: {self.stats.throughput:.1f}/s"
             )
 
-            metrics.consumer_batch_size.set(inserted)
-
             # Send failed records to DLQ
             if failed > 0:
                 for msg in self._pending_messages[-failed:]:
@@ -380,7 +347,6 @@ class HeartbeatConsumer:
 
         except Exception as e:
             self.logger.error(f"Batch write failed completely: {e}")
-            metrics.db_writes.labels(status="failed").inc()
             
             # Send entire batch to DLQ
             for msg in self._pending_messages:
@@ -407,19 +373,16 @@ class HeartbeatConsumer:
 
         try:
             while self._running:
-                # Use backpressure-aware poll timeout
-                poll_timeout = self._backpressure.get_recommended_poll_timeout()
-                
-                # Skip polling if under extreme backpressure
-                if self._backpressure.should_skip_poll():
-                    self.logger.warning("Backpressure: Skipping poll, waiting for DB writes")
+                # Check backpressure before polling
+                if not self._backpressure.can_accept():
+                    self.logger.warning("Backpressure: Waiting for capacity")
                     self.stats.backpressure_waits += 1
                     time.sleep(1.0)
                     if self._should_flush():
                         self._flush_batch()
                     continue
                 
-                msg = self._consumer.poll(timeout=poll_timeout)
+                msg = self._consumer.poll(timeout=1.0)
 
                 if msg is None:
                     if self._should_flush():
@@ -434,13 +397,14 @@ class HeartbeatConsumer:
                     continue
 
                 self.stats.received += 1
-                metrics.messages_consumed.labels(status="received").inc()
                 
-                # Acquire backpressure slot before processing
-                if not self._backpressure.acquire(timeout=5.0):
-                    self.logger.warning("Backpressure: Could not acquire slot, skipping message")
-                    self.stats.backpressure_waits += 1
-                    continue
+                # Check backpressure before processing
+                if not self._backpressure.add(1):
+                    self.logger.warning("Backpressure: At capacity, waiting")
+                    if not self._backpressure.wait_for_capacity(timeout=5.0):
+                        self.stats.backpressure_waits += 1
+                        continue
+                    self._backpressure.add(1)
 
                 record = self._process_message(msg)
                 if record:
@@ -468,7 +432,7 @@ class HeartbeatConsumer:
             f"Stats: received={self.stats.received} | processed={self.stats.processed} | "
             f"duplicates={self.stats.duplicates_skipped} | anomalies={self.stats.anomalies} | "
             f"dlq={self.stats.dlq_sent} | validation_errors={self.stats.validation_errors} | "
-            f"backpressure={bp_status['state']} ({bp_status['utilization_percent']:.1f}%) | "
+            f"backpressure={bp_status['state']} ({bp_status['utilization_pct']:.1f}%) | "
             f"throughput={self.stats.throughput:.1f}/s"
         )
 
